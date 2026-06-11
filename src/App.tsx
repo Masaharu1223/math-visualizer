@@ -1,0 +1,171 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseFunction } from './math/engine'
+import type { ParsedFunction } from './math/engine'
+import { Controls } from './components/Controls'
+import { View2D } from './components/View2D'
+import { View3D, DOMAIN_3D } from './components/View3D'
+
+type Mode = 'derivative' | 'integral' | 'surface'
+
+const DEFAULT_RANGE: [number, number] = [-4, 4]
+const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
+
+const PRESETS_2D = [
+  'x^3/3 - 2x',
+  'sin(x)',
+  'x * sin(x)',
+  'exp(-x^2/2)',
+  '1/x',
+  'log(x)',
+  'tan(x)',
+]
+const PRESETS_3D = [
+  'sin(x) * cos(y)',
+  'x^2 - y^2',
+  'exp(-(x^2 + y^2)/2)',
+  'sin(sqrt(x^2 + y^2))',
+  'x * y / 3',
+]
+
+const MODE_LABELS: Record<Mode, string> = {
+  derivative: '微分',
+  integral: '積分',
+  surface: '3D 曲面',
+}
+
+/** x を xRange 内でループさせるアニメーション */
+function useAnimatedX(
+  range: [number, number],
+  playing: boolean,
+  speed: number,
+): [number, (x: number) => void] {
+  const [x, setX] = useState((range[0] + range[1]) / 2)
+  const rangeRef = useRef(range)
+  rangeRef.current = range
+
+  useEffect(() => {
+    if (!playing) return
+    let raf = 0
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1)
+      last = now
+      const [a, b] = rangeRef.current
+      setX((prev) => {
+        const nx = prev + (dt * speed * (b - a)) / 8
+        return nx > b ? a : Math.max(a, nx)
+      })
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [playing, speed])
+
+  useEffect(() => {
+    setX((prev) => Math.max(range[0], Math.min(range[1], prev)))
+  }, [range])
+
+  return [x, setX]
+}
+
+export default function App() {
+  const [mode, setMode] = useState<Mode>('derivative')
+  const [expr2d, setExpr2d] = useState(PRESETS_2D[0])
+  const [expr3d, setExpr3d] = useState(PRESETS_3D[0])
+  const [xRange, setXRange] = useState<[number, number]>(DEFAULT_RANGE)
+  const [playing, setPlaying] = useState(true)
+  const [speed, setSpeed] = useState(1)
+
+  const is3D = mode === 'surface'
+  const expr = is3D ? expr3d : expr2d
+  const setExpr = is3D ? setExpr3d : setExpr2d
+  const presets = is3D ? PRESETS_3D : PRESETS_2D
+  const effRange = is3D ? SURFACE_RANGE : xRange
+
+  const parsed = useMemo(() => {
+    try {
+      return { fn: parseFunction(expr, is3D ? ['x', 'y'] : ['x']), error: null as string | null }
+    } catch (e) {
+      return { fn: null, error: e instanceof Error ? e.message : String(e) }
+    }
+  }, [expr, is3D])
+
+  // 入力途中で式が壊れてもグラフを消さず、直前の有効な関数を表示し続ける
+  const lastValid = useRef<Record<'2d' | '3d', ParsedFunction | null>>({ '2d': null, '3d': null })
+  const key = is3D ? '3d' : '2d'
+  if (parsed.fn) lastValid.current[key] = parsed.fn
+  const fn = parsed.fn ?? lastValid.current[key]
+
+  const [x, setX] = useAnimatedX(effRange, playing, speed)
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>関数ビジュアライザー</h1>
+        <nav className="tabs">
+          {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
+            <button
+              key={m}
+              className={m === mode ? 'tab active' : 'tab'}
+              onClick={() => setMode(m)}
+            >
+              {MODE_LABELS[m]}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <div className="input-row">
+        <span className="fn-label">{is3D ? 'f(x, y) =' : 'f(x) ='}</span>
+        <input
+          className={parsed.error ? 'fn-input invalid' : 'fn-input'}
+          value={expr}
+          onChange={(e) => setExpr(e.target.value)}
+          spellCheck={false}
+          placeholder={is3D ? '例: sin(x) * cos(y)' : '例: x^3/3 - 2x'}
+        />
+        <select
+          className="preset-select"
+          value={presets.includes(expr) ? expr : ''}
+          onChange={(e) => e.target.value && setExpr(e.target.value)}
+        >
+          <option value="" disabled>
+            プリセット
+          </option>
+          {presets.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </div>
+      {parsed.error && <p className="error-text">数式エラー: {parsed.error}</p>}
+
+      <Controls
+        playing={playing}
+        onTogglePlay={() => setPlaying((p) => !p)}
+        speed={speed}
+        onSpeedChange={setSpeed}
+        x={x}
+        onXChange={(v) => {
+          setPlaying(false)
+          setX(v)
+        }}
+        xRange={effRange}
+        onResetView={!is3D ? () => setXRange(DEFAULT_RANGE) : undefined}
+      />
+
+      {fn &&
+        (is3D ? (
+          <View3D fn={fn} x={x} />
+        ) : (
+          <View2D fn={fn} mode={mode} x={x} xRange={xRange} onXRangeChange={setXRange} />
+        ))}
+
+      <footer className="app-footer">
+        使える記法: x^2, sin, cos, tan, exp, log, sqrt, pi, e など(math.js 構文)/
+        グラフはドラッグで移動・ホイールでズーム
+      </footer>
+    </div>
+  )
+}
