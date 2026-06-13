@@ -373,7 +373,7 @@ export function Graph2D(props: Graph2DProps) {
     <canvas
       ref={canvasRef}
       className="graph2d"
-      style={{ height: props.height ?? 250 }}
+      style={props.height != null ? { height: props.height } : undefined}
     />
   )
 }
