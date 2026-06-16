@@ -4,8 +4,9 @@ import type { ParsedFunction } from './math/engine'
 import { Controls } from './components/Controls'
 import { View2D } from './components/View2D'
 import { View3D, DOMAIN_3D } from './components/View3D'
+import { ViewParametric } from './components/ViewParametric'
 
-type Mode = 'derivative' | 'integral' | 'surface'
+type Mode = 'derivative' | 'integral' | 'surface' | 'parametric'
 
 const DEFAULT_RANGE: [number, number] = [-4, 4]
 const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
@@ -26,11 +27,19 @@ const PRESETS_3D = [
   'sin(sqrt(x^2 + y^2))',
   'x * y / 3',
 ]
+const PRESETS_PARAMETRIC = [
+  { label: '円', xt: 'cos(t)', yt: 'sin(t)' },
+  { label: '楕円', xt: '3 * cos(t)', yt: '2 * sin(t)' },
+  { label: 'サイクロイド', xt: 't - sin(t)', yt: '1 - cos(t)' },
+  { label: 'カージオイド', xt: '2 * cos(t) - cos(2 * t)', yt: '2 * sin(t) - sin(2 * t)' },
+  { label: 'リサージュ', xt: 'sin(2 * t)', yt: 'sin(3 * t)' },
+]
 
 const MODE_LABELS: Record<Mode, string> = {
   derivative: '微分',
   integral: '積分',
   surface: '3D 曲面',
+  parametric: '媒介変数',
 }
 
 /** x を xRange 内でループさせるアニメーション */
@@ -72,10 +81,13 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('derivative')
   const [expr2d, setExpr2d] = useState(PRESETS_2D[0])
   const [expr3d, setExpr3d] = useState(PRESETS_3D[0])
+  const [xtExpr, setXtExpr] = useState(PRESETS_PARAMETRIC[0].xt)
+  const [ytExpr, setYtExpr] = useState(PRESETS_PARAMETRIC[0].yt)
   const [xRange, setXRange] = useState<[number, number]>(DEFAULT_RANGE)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
 
+  const isParametric = mode === 'parametric'
   const is3D = mode === 'surface'
   const expr = is3D ? expr3d : expr2d
   const setExpr = is3D ? setExpr3d : setExpr2d
@@ -83,12 +95,13 @@ export default function App() {
   const effRange = is3D ? SURFACE_RANGE : xRange
 
   const parsed = useMemo(() => {
+    if (isParametric) return { fn: null, error: null as string | null }
     try {
       return { fn: parseFunction(expr, is3D ? ['x', 'y'] : ['x']), error: null as string | null }
     } catch (e) {
       return { fn: null, error: e instanceof Error ? e.message : String(e) }
     }
-  }, [expr, is3D])
+  }, [expr, is3D, isParametric])
 
   // 入力途中で式が壊れてもグラフを消さず、直前の有効な関数を表示し続ける
   const lastValid = useRef<Record<'2d' | '3d', ParsedFunction | null>>({ '2d': null, '3d': null })
@@ -97,6 +110,10 @@ export default function App() {
   const fn = parsed.fn ?? lastValid.current[key]
 
   const [x, setX] = useAnimatedX(effRange, playing, speed)
+
+  const currentParametricPresetIndex = PRESETS_PARAMETRIC.findIndex(
+    (p) => p.xt === xtExpr && p.yt === ytExpr,
+  )
 
   return (
     <div className="app">
@@ -115,52 +132,104 @@ export default function App() {
         </nav>
       </header>
 
-      <div className="input-row">
-        <span className="fn-label">{is3D ? 'f(x, y) =' : 'f(x) ='}</span>
-        <input
-          className={parsed.error ? 'fn-input invalid' : 'fn-input'}
-          value={expr}
-          onChange={(e) => setExpr(e.target.value)}
-          spellCheck={false}
-          placeholder={is3D ? '例: sin(x) * cos(y)' : '例: x^3/3 - 2x'}
+      {isParametric ? (
+        <div className="parametric-inputs">
+          <div className="input-row">
+            <span className="fn-label">x(t) =</span>
+            <input
+              className="fn-input"
+              value={xtExpr}
+              onChange={(e) => setXtExpr(e.target.value)}
+              spellCheck={false}
+              placeholder="例: cos(t)"
+            />
+          </div>
+          <div className="input-row">
+            <span className="fn-label">y(t) =</span>
+            <input
+              className="fn-input"
+              value={ytExpr}
+              onChange={(e) => setYtExpr(e.target.value)}
+              spellCheck={false}
+              placeholder="例: sin(t)"
+            />
+            <select
+              className="preset-select"
+              value={currentParametricPresetIndex >= 0 ? String(currentParametricPresetIndex) : ''}
+              onChange={(e) => {
+                if (!e.target.value) return
+                const p = PRESETS_PARAMETRIC[Number(e.target.value)]
+                setXtExpr(p.xt)
+                setYtExpr(p.yt)
+              }}
+            >
+              <option value="" disabled>
+                プリセット
+              </option>
+              {PRESETS_PARAMETRIC.map((p, i) => (
+                <option key={p.label} value={String(i)}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="input-row">
+            <span className="fn-label">{is3D ? 'f(x, y) =' : 'f(x) ='}</span>
+            <input
+              className={parsed.error ? 'fn-input invalid' : 'fn-input'}
+              value={expr}
+              onChange={(e) => setExpr(e.target.value)}
+              spellCheck={false}
+              placeholder={is3D ? '例: sin(x) * cos(y)' : '例: x^3/3 - 2x'}
+            />
+            <select
+              className="preset-select"
+              value={presets.includes(expr) ? expr : ''}
+              onChange={(e) => e.target.value && setExpr(e.target.value)}
+            >
+              <option value="" disabled>
+                プリセット
+              </option>
+              {presets.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+          {parsed.error && <p className="error-text">数式エラー: {parsed.error}</p>}
+        </>
+      )}
+
+      {!isParametric && (
+        <Controls
+          playing={playing}
+          onTogglePlay={() => setPlaying((p) => !p)}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          x={x}
+          onXChange={(v) => {
+            setPlaying(false)
+            setX(v)
+          }}
+          xRange={effRange}
+          onResetView={!is3D ? () => setXRange(DEFAULT_RANGE) : undefined}
         />
-        <select
-          className="preset-select"
-          value={presets.includes(expr) ? expr : ''}
-          onChange={(e) => e.target.value && setExpr(e.target.value)}
-        >
-          <option value="" disabled>
-            プリセット
-          </option>
-          {presets.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </div>
-      {parsed.error && <p className="error-text">数式エラー: {parsed.error}</p>}
+      )}
 
-      <Controls
-        playing={playing}
-        onTogglePlay={() => setPlaying((p) => !p)}
-        speed={speed}
-        onSpeedChange={setSpeed}
-        x={x}
-        onXChange={(v) => {
-          setPlaying(false)
-          setX(v)
-        }}
-        xRange={effRange}
-        onResetView={!is3D ? () => setXRange(DEFAULT_RANGE) : undefined}
-      />
-
-      {fn &&
+      {isParametric ? (
+        <ViewParametric xtExpr={xtExpr} ytExpr={ytExpr} />
+      ) : (
+        fn &&
         (is3D ? (
           <View3D fn={fn} x={x} />
         ) : (
-          <View2D fn={fn} mode={mode} x={x} xRange={xRange} onXRangeChange={setXRange} />
-        ))}
+          <View2D fn={fn} mode={mode as 'derivative' | 'integral'} x={x} xRange={xRange} onXRangeChange={setXRange} />
+        ))
+      )}
 
       <footer className="app-footer">
         使える記法: x^2, sin, cos, tan, exp, log, sqrt, pi, e など(math.js 構文)/
