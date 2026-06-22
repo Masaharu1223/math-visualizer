@@ -15,6 +15,17 @@ export interface Samples {
   ys: Float64Array
 }
 
+export interface ParametricPoint {
+  x: number
+  y: number
+}
+
+export interface ParametricCurve {
+  x: ParsedFunction
+  y: ParsedFunction
+  eval: (t: number) => ParametricPoint
+}
+
 function fromNode(node: MathNode, allowedVars: string[]): ParsedFunction {
   // 未知のシンボルは評価時の NaN ではなくパース時にエラーにする
   node.traverse((n, _path, parent) => {
@@ -48,13 +59,23 @@ export function parseFunction(input: string, allowedVars: string[] = ['x']): Par
   return fromNode(mathjs.parse(input), allowedVars)
 }
 
+export function parseParametricCurve(xInput: string, yInput: string): ParametricCurve {
+  const x = parseFunction(xInput, ['t'])
+  const y = parseFunction(yInput, ['t'])
+  return {
+    x,
+    y,
+    eval: (t) => ({ x: x.eval({ t }), y: y.eval({ t }) }),
+  }
+}
+
 export function differentiate(
   fn: ParsedFunction,
   variable = 'x',
   allowedVars: string[] = ['x', 'y'],
 ): ParsedFunction {
   const d = mathjs.derivative(fn.node, variable)
-  let node: MathNode = d
+  let node: MathNode
   try {
     node = mathjs.simplify(d)
   } catch {
@@ -78,6 +99,61 @@ export function sampleFunction(
     ys[i] = f(x)
   }
   return { xs, ys }
+}
+
+export function sampleParametricCurve(
+  curve: ParametricCurve,
+  tmin: number,
+  tmax: number,
+  n = 800,
+): Samples {
+  const xs = new Float64Array(n + 1)
+  const ys = new Float64Array(n + 1)
+  const dt = (tmax - tmin) / n
+  for (let i = 0; i <= n; i++) {
+    const t = tmin + dt * i
+    const p = curve.eval(t)
+    if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+      xs[i] = p.x
+      ys[i] = p.y
+    } else {
+      xs[i] = NaN
+      ys[i] = NaN
+    }
+  }
+  return { xs, ys }
+}
+
+export function finiteSampleXRange(
+  samples: Samples,
+  fallback: [number, number] = [-1, 1],
+): [number, number] {
+  return finiteRange(samples.xs, fallback)
+}
+
+export function finiteSampleYRange(
+  samples: Samples,
+  fallback: [number, number] = [-1, 1],
+): [number, number] {
+  return finiteRange(samples.ys, fallback)
+}
+
+function finiteRange(values: Float64Array, fallback: [number, number]): [number, number] {
+  const finite: number[] = []
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i]
+    if (!Number.isFinite(value)) continue
+    finite.push(value)
+  }
+  if (finite.length === 0) return fallback
+  finite.sort((a, b) => a - b)
+  const quantile = (t: number) =>
+    finite[Math.max(0, Math.min(finite.length - 1, Math.floor(t * (finite.length - 1))))]
+  const min = quantile(0.02)
+  const max = quantile(0.98)
+  if (max - min < 1e-6) return [min - 1, max + 1]
+  const pad = (max - min) * 0.15
+  return [min - pad, max + pad]
 }
 
 export function interpolateSamples(s: Samples, x: number): number {

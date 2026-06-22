@@ -10,6 +10,14 @@ type Mode = 'derivative' | 'integral' | 'surface' | 'parametric'
 
 const DEFAULT_RANGE: [number, number] = [-4, 4]
 const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
+const DEFAULT_T_RANGE: [number, number] = [0, Math.PI * 2]
+
+interface ParametricPreset {
+  label: string
+  xt: string
+  yt: string
+  tRange: [number, number]
+}
 
 const PRESETS_2D = [
   'x^3/3 - 2x',
@@ -27,12 +35,17 @@ const PRESETS_3D = [
   'sin(sqrt(x^2 + y^2))',
   'x * y / 3',
 ]
-const PRESETS_PARAMETRIC = [
-  { label: '円', xt: 'cos(t)', yt: 'sin(t)' },
-  { label: '楕円', xt: '3 * cos(t)', yt: '2 * sin(t)' },
-  { label: 'サイクロイド', xt: 't - sin(t)', yt: '1 - cos(t)' },
-  { label: 'カージオイド', xt: '2 * cos(t) - cos(2 * t)', yt: '2 * sin(t) - sin(2 * t)' },
-  { label: 'リサージュ', xt: 'sin(2 * t)', yt: 'sin(3 * t)' },
+const PRESETS_PARAMETRIC: ParametricPreset[] = [
+  { label: '円', xt: 'cos(t)', yt: 'sin(t)', tRange: DEFAULT_T_RANGE },
+  { label: '楕円', xt: '3 * cos(t)', yt: '2 * sin(t)', tRange: DEFAULT_T_RANGE },
+  { label: 'サイクロイド', xt: 't - sin(t)', yt: '1 - cos(t)', tRange: [0, Math.PI * 4] },
+  {
+    label: 'カージオイド',
+    xt: '2 * cos(t) - cos(2 * t)',
+    yt: '2 * sin(t) - sin(2 * t)',
+    tRange: DEFAULT_T_RANGE,
+  },
+  { label: 'リサージュ', xt: 'sin(2 * t)', yt: 'sin(3 * t)', tRange: DEFAULT_T_RANGE },
 ]
 
 const MODE_LABELS: Record<Mode, string> = {
@@ -50,7 +63,10 @@ function useAnimatedX(
 ): [number, (x: number) => void] {
   const [x, setX] = useState((range[0] + range[1]) / 2)
   const rangeRef = useRef(range)
-  rangeRef.current = range
+
+  useEffect(() => {
+    rangeRef.current = range
+  }, [range])
 
   useEffect(() => {
     if (!playing) return
@@ -71,6 +87,7 @@ function useAnimatedX(
   }, [playing, speed])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- range change must clamp the animated value immediately
     setX((prev) => Math.max(range[0], Math.min(range[1], prev)))
   }, [range])
 
@@ -83,6 +100,7 @@ export default function App() {
   const [expr3d, setExpr3d] = useState(PRESETS_3D[0])
   const [xtExpr, setXtExpr] = useState(PRESETS_PARAMETRIC[0].xt)
   const [ytExpr, setYtExpr] = useState(PRESETS_PARAMETRIC[0].yt)
+  const [tRange, setTRange] = useState<[number, number]>(PRESETS_PARAMETRIC[0].tRange)
   const [xRange, setXRange] = useState<[number, number]>(DEFAULT_RANGE)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
@@ -103,16 +121,21 @@ export default function App() {
     }
   }, [expr, is3D, isParametric])
 
-  // 入力途中で式が壊れてもグラフを消さず、直前の有効な関数を表示し続ける
-  const lastValid = useRef<Record<'2d' | '3d', ParsedFunction | null>>({ '2d': null, '3d': null })
+  const [lastValid, setLastValid] = useState<Record<'2d' | '3d', ParsedFunction | null>>({
+    '2d': null,
+    '3d': null,
+  })
   const key = is3D ? '3d' : '2d'
-  if (parsed.fn) lastValid.current[key] = parsed.fn
-  const fn = parsed.fn ?? lastValid.current[key]
+  useEffect(() => {
+    if (!parsed.fn) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cache the latest valid parser result for invalid input fallback
+    setLastValid((prev) => (prev[key] === parsed.fn ? prev : { ...prev, [key]: parsed.fn }))
+  }, [key, parsed.fn])
+  const fn = parsed.fn ?? lastValid[key]
 
-  const [x, setX] = useAnimatedX(effRange, playing, speed)
-
+  const [x, setX] = useAnimatedX(effRange, !isParametric && playing, speed)
   const currentParametricPresetIndex = PRESETS_PARAMETRIC.findIndex(
-    (p) => p.xt === xtExpr && p.yt === ytExpr,
+    (p) => p.xt === xtExpr && p.yt === ytExpr && p.tRange[0] === tRange[0] && p.tRange[1] === tRange[1],
   )
 
   return (
@@ -158,9 +181,10 @@ export default function App() {
               value={currentParametricPresetIndex >= 0 ? String(currentParametricPresetIndex) : ''}
               onChange={(e) => {
                 if (!e.target.value) return
-                const p = PRESETS_PARAMETRIC[Number(e.target.value)]
-                setXtExpr(p.xt)
-                setYtExpr(p.yt)
+                const preset = PRESETS_PARAMETRIC[Number(e.target.value)]
+                setXtExpr(preset.xt)
+                setYtExpr(preset.yt)
+                setTRange(preset.tRange)
               }}
             >
               <option value="" disabled>
@@ -221,13 +245,19 @@ export default function App() {
       )}
 
       {isParametric ? (
-        <ViewParametric xtExpr={xtExpr} ytExpr={ytExpr} />
+        <ViewParametric xtExpr={xtExpr} ytExpr={ytExpr} tRange={tRange} />
       ) : (
         fn &&
         (is3D ? (
           <View3D fn={fn} x={x} />
         ) : (
-          <View2D fn={fn} mode={mode as 'derivative' | 'integral'} x={x} xRange={xRange} onXRangeChange={setXRange} />
+          <View2D
+            fn={fn}
+            mode={mode as 'derivative' | 'integral'}
+            x={x}
+            xRange={xRange}
+            onXRangeChange={setXRange}
+          />
         ))
       )}
 
