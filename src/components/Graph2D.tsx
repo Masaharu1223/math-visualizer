@@ -40,7 +40,15 @@ interface Graph2DProps {
   /** マーカー位置を示す縦の破線 */
   connectorX?: number
   height?: number
+  yRange?: [number, number]
+  preserveAspect?: boolean
   onXRangeChange?: (range: [number, number]) => void
+  onYRangeChange?: (range: [number, number]) => void
+}
+
+interface Viewport {
+  xRange: [number, number]
+  yRange: [number, number]
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -78,6 +86,22 @@ function fitYRange(curves: Curve[], area?: AreaFill | null): [number, number] {
   return [min - pad, max + pad]
 }
 
+function resolveViewport(props: Graph2DProps, width: number, height: number): Viewport {
+  let [xmin, xmax] = props.xRange
+  let [ymin, ymax] = props.yRange ?? fitYRange(props.curves, props.area)
+  if (props.preserveAspect) {
+    const xCenter = (xmin + xmax) / 2
+    const yCenter = (ymin + ymax) / 2
+    const ySpan = Math.max(ymax - ymin, (xmax - xmin) * (height / width))
+    const xSpan = ySpan * (width / height)
+    xmin = xCenter - xSpan / 2
+    xmax = xCenter + xSpan / 2
+    ymin = yCenter - ySpan / 2
+    ymax = yCenter + ySpan / 2
+  }
+  return { xRange: [xmin, xmax], yRange: [ymin, ymax] }
+}
+
 function strokeLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
   ctx.beginPath()
   ctx.moveTo(x1, y1)
@@ -100,6 +124,7 @@ function drawCurve(
   c: Curve,
   sx: (x: number) => number,
   sy: (y: number) => number,
+  w: number,
   h: number,
 ) {
   const { xs, ys } = c.samples
@@ -116,6 +141,10 @@ function drawCurve(
   let started = false
   let prevPy = 0
   for (let i = 0; i < xs.length; i++) {
+    if (!Number.isFinite(xs[i])) {
+      started = false
+      continue
+    }
     if (c.upToX != null && xs[i] > c.upToX) {
       // 末端をちょうど upToX まで補間して滑らかに止める
       if (started && i > 0 && Number.isFinite(ys[i]) && Number.isFinite(ys[i - 1])) {
@@ -131,7 +160,7 @@ function drawCurve(
     }
     const px = sx(xs[i])
     const py = sy(y)
-    if (py < -2 * h || py > 3 * h) {
+    if (px < -2 * w || px > 3 * w || py < -2 * h || py > 3 * h) {
       // 漸近線対策: 画面外遠方では線を切る
       started = false
       prevPy = py
@@ -156,7 +185,7 @@ function drawCurve(
 }
 
 function draw(canvas: HTMLCanvasElement, props: Graph2DProps) {
-  const { curves, markers = [], tangent, area, xRange, connectorX } = props
+  const { curves, markers = [], tangent, area, connectorX } = props
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const w = canvas.clientWidth
   const h = canvas.clientHeight
@@ -170,8 +199,9 @@ function draw(canvas: HTMLCanvasElement, props: Graph2DProps) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, w, h)
 
+  const { xRange, yRange } = resolveViewport(props, w, h)
   const [xmin, xmax] = xRange
-  const [ymin, ymax] = fitYRange(curves, area)
+  const [ymin, ymax] = yRange
   const kx = w / (xmax - xmin)
   const ky = h / (ymax - ymin)
   const sx = (x: number) => (x - xmin) * kx
@@ -249,7 +279,7 @@ function draw(canvas: HTMLCanvasElement, props: Graph2DProps) {
   }
 
   // 曲線
-  for (const c of curves) drawCurve(ctx, c, sx, sy, h)
+  for (const c of curves) drawCurve(ctx, c, sx, sy, w, h)
 
   // 接線
   if (
@@ -311,8 +341,16 @@ function draw(canvas: HTMLCanvasElement, props: Graph2DProps) {
 export function Graph2D(props: Graph2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const propsRef = useRef(props)
-  propsRef.current = props
-  const dragRef = useRef<{ startX: number; range: [number, number] } | null>(null)
+  const dragRef = useRef<{
+    startX: number
+    startY: number
+    xRange: [number, number]
+    yRange: [number, number] | null
+  } | null>(null)
+
+  useEffect(() => {
+    propsRef.current = props
+  }, [props])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -330,16 +368,32 @@ export function Graph2D(props: Graph2DProps) {
       const p = propsRef.current
       if (!p.onXRangeChange) return
       e.preventDefault()
-      const [xmin, xmax] = p.xRange
       const rect = canvas.getBoundingClientRect()
+      const { xRange, yRange } = resolveViewport(p, rect.width, rect.height)
+      const [xmin, xmax] = xRange
+      const [ymin, ymax] = yRange
       const fx = (e.clientX - rect.left) / rect.width
+      const fy = (e.clientY - rect.top) / rect.height
       const cx = xmin + fx * (xmax - xmin)
+      const cy = ymax - fy * (ymax - ymin)
       const scale = Math.exp(e.deltaY * 0.0015)
       const span = clamp((xmax - xmin) * scale, 0.5, 200)
       p.onXRangeChange([cx - fx * span, cx + (1 - fx) * span])
+      if (p.onYRangeChange) {
+        const ySpan = clamp((ymax - ymin) * scale, 0.5, 200)
+        p.onYRangeChange([cy - (1 - fy) * ySpan, cy + fy * ySpan])
+      }
     }
     const onDown = (e: PointerEvent) => {
-      dragRef.current = { startX: e.clientX, range: propsRef.current.xRange }
+      const p = propsRef.current
+      const rect = canvas.getBoundingClientRect()
+      const { xRange, yRange } = resolveViewport(p, rect.width, rect.height)
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        xRange,
+        yRange: p.onYRangeChange ? yRange : null,
+      }
       canvas.setPointerCapture(e.pointerId)
     }
     const onMove = (e: PointerEvent) => {
@@ -347,8 +401,12 @@ export function Graph2D(props: Graph2DProps) {
       const p = propsRef.current
       if (!d || !p.onXRangeChange) return
       const rect = canvas.getBoundingClientRect()
-      const dx = ((e.clientX - d.startX) / rect.width) * (d.range[1] - d.range[0])
-      p.onXRangeChange([d.range[0] - dx, d.range[1] - dx])
+      const dx = ((e.clientX - d.startX) / rect.width) * (d.xRange[1] - d.xRange[0])
+      p.onXRangeChange([d.xRange[0] - dx, d.xRange[1] - dx])
+      if (d.yRange && p.onYRangeChange) {
+        const dy = ((e.clientY - d.startY) / rect.height) * (d.yRange[1] - d.yRange[0])
+        p.onYRangeChange([d.yRange[0] + dy, d.yRange[1] + dy])
+      }
     }
     const onUp = () => {
       dragRef.current = null

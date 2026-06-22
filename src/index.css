@@ -301,6 +301,40 @@ input[type='range'] {
   display: block;
 }
 
+.parametric-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.view-parametric {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.parametric-panel {
+  flex: 1;
+}
+
+.parametric-head {
+  align-items: baseline;
+}
+
+.parametric-head .formula {
+  font-size: 16px;
+}
+
+.parametric-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
 .app-footer {
   margin-top: 12px;
   font-size: 12px;
