@@ -134,6 +134,7 @@ export default function App() {
   const fn = parsed.fn ?? lastValid[key]
 
   const [x, setX] = useAnimatedX(effRange, !isParametric && playing, speed)
+  const [t, setT] = useAnimatedX(tRange, isParametric && playing, speed)
   const currentParametricPresetIndex = PRESETS_PARAMETRIC.findIndex(
     (p) => p.xt === xtExpr && p.yt === ytExpr && p.tRange[0] === tRange[0] && p.tRange[1] === tRange[1],
   )
@@ -228,21 +229,20 @@ export default function App() {
         </>
       )}
 
-      {!isParametric && (
-        <Controls
-          playing={playing}
-          onTogglePlay={() => setPlaying((p) => !p)}
-          speed={speed}
-          onSpeedChange={setSpeed}
-          x={x}
-          onXChange={(v) => {
-            setPlaying(false)
-            setX(v)
-          }}
-          xRange={effRange}
-          onResetView={!is3D ? () => setXRange(DEFAULT_RANGE) : undefined}
-        />
-      )}
+      <Controls
+        playing={playing}
+        onTogglePlay={() => setPlaying((p) => !p)}
+        speed={speed}
+        onSpeedChange={setSpeed}
+        x={isParametric ? t : x}
+        onXChange={(v) => {
+          setPlaying(false)
+          if (isParametric) setT(v)
+          else setX(v)
+        }}
+        xRange={isParametric ? tRange : effRange}
+        onResetView={!is3D && !isParametric ? () => setXRange(DEFAULT_RANGE) : undefined}
+      />
 
       {isParametric ? (
         <ViewParametric xtExpr={xtExpr} ytExpr={ytExpr} tRange={tRange} />
