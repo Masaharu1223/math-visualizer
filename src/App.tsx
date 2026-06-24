@@ -5,55 +5,19 @@ import { Controls } from './components/Controls'
 import { View2D } from './components/View2D'
 import { View3D, DOMAIN_3D } from './components/View3D'
 import { ViewParametric } from './components/ViewParametric'
+import {
+  DEFAULT_RANGE,
+  MODE_LABELS,
+  PRESETS_2D,
+  PRESETS_3D,
+  PRESETS_PARAMETRIC,
+} from './constants'
+import type { Mode } from './constants'
 
-type Mode = 'derivative' | 'integral' | 'surface' | 'parametric'
-
-const DEFAULT_RANGE: [number, number] = [-4, 4]
 const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
-const DEFAULT_T_RANGE: [number, number] = [0, Math.PI * 2]
 
-interface ParametricPreset {
-  label: string
-  xt: string
-  yt: string
-  tRange: [number, number]
-}
-
-const PRESETS_2D = [
-  'x^3/3 - 2x',
-  'sin(x)',
-  'x * sin(x)',
-  'exp(-x^2/2)',
-  '1/x',
-  'log(x)',
-  'tan(x)',
-]
-const PRESETS_3D = [
-  'sin(x) * cos(y)',
-  'x^2 - y^2',
-  'exp(-(x^2 + y^2)/2)',
-  'sin(sqrt(x^2 + y^2))',
-  'x * y / 3',
-]
-const PRESETS_PARAMETRIC: ParametricPreset[] = [
-  { label: '円', xt: 'cos(t)', yt: 'sin(t)', tRange: DEFAULT_T_RANGE },
-  { label: '楕円', xt: '3 * cos(t)', yt: '2 * sin(t)', tRange: DEFAULT_T_RANGE },
-  { label: 'サイクロイド', xt: 't - sin(t)', yt: '1 - cos(t)', tRange: [0, Math.PI * 4] },
-  {
-    label: 'カージオイド',
-    xt: '2 * cos(t) - cos(2 * t)',
-    yt: '2 * sin(t) - sin(2 * t)',
-    tRange: DEFAULT_T_RANGE,
-  },
-  { label: 'リサージュ', xt: 'sin(2 * t)', yt: 'sin(3 * t)', tRange: DEFAULT_T_RANGE },
-]
-
-const MODE_LABELS: Record<Mode, string> = {
-  derivative: '微分',
-  integral: '積分',
-  surface: '3D 曲面',
-  parametric: '媒介変数',
-}
+const MAX_FRAME_DELTA_SEC = 0.1
+const ANIMATION_SPEED_SCALE = 8
 
 /** x を xRange 内でループさせるアニメーション */
 function useAnimatedX(
@@ -73,11 +37,11 @@ function useAnimatedX(
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.1)
+      const dt = Math.min((now - last) / 1000, MAX_FRAME_DELTA_SEC)
       last = now
       const [a, b] = rangeRef.current
       setX((prev) => {
-        const nx = prev + (dt * speed * (b - a)) / 8
+        const nx = prev + (dt * speed * (b - a)) / ANIMATION_SPEED_SCALE
         return nx > b ? a : Math.max(a, nx)
       })
       raf = requestAnimationFrame(tick)
