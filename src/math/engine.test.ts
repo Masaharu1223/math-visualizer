@@ -182,8 +182,8 @@ describe('sampleCountForWidth', () => {
 
 describe('高周波関数のサンプリング精度(回帰)', () => {
   const f = (x: number) => Math.sin(50 * x)
-  it('sin(50x) [-4,4] を幅1000px相当でサンプリングすると乖離0.05以下', () => {
-    expect(maxPolylineDeviation(f, -4, 4, sampleCountForWidth(1000))).toBeLessThan(0.05)
+  it('sin(50x) [-4,4] を幅1000px相当でサンプリングすると乖離0.02以下', () => {
+    expect(maxPolylineDeviation(f, -4, 4, sampleCountForWidth(1000))).toBeLessThan(0.02)
   })
   it('sin(50x) [-20,20] (ズームアウト)でも幅1000px相当で乖離0.5以下', () => {
     expect(maxPolylineDeviation(f, -20, 20, sampleCountForWidth(1000))).toBeLessThan(0.5)

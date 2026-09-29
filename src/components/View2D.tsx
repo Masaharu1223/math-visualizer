@@ -37,7 +37,10 @@ function useSafeDerivative(fn: ParsedFunction | null): ParsedFunction | null {
   }, [fn])
 }
 
-/** 要素の幅(CSS px)を追跡する。グラフのサンプル密度を表示幅に合わせるために使う */
+/**
+ * 要素の幅(CSS px)を追跡する。グラフのサンプル密度を表示幅に合わせるために使う。
+ * 計測対象は .view2d ルートなので、パネルが横に並ぶ場合の実効密度はこれより低くなる(点が多めになるだけで害はない)
+ */
 function useElementWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null)
   const [width, setWidth] = useState(0)
