@@ -10,6 +10,7 @@ import {
   parseParametricCurve,
   sampleParametricCurve,
   sampleFunction,
+  sampleCountForWidth,
 } from './engine'
 
 describe('parseFunction', () => {
@@ -150,5 +151,41 @@ describe('parametric curves', () => {
     const [xmin, xmax] = finiteSampleXRange(samples)
     expect(xmin).toBeGreaterThan(-1000)
     expect(xmax).toBeLessThan(1000)
+  })
+})
+
+/** 折れ線(samples)と真値 f の最大乖離を、各線分の中点で評価する */
+function maxPolylineDeviation(f: (x: number) => number, xmin: number, xmax: number, n: number) {
+  const { xs, ys } = sampleFunction(f, xmin, xmax, n)
+  let max = 0
+  for (let i = 0; i < n; i++) {
+    const mid = (xs[i] + xs[i + 1]) / 2
+    max = Math.max(max, Math.abs((ys[i] + ys[i + 1]) / 2 - f(mid)))
+  }
+  return max
+}
+
+describe('sampleCountForWidth', () => {
+  it('幅に比例して約2点/pxになる', () => {
+    expect(sampleCountForWidth(1000)).toBe(2000)
+    expect(sampleCountForWidth(500)).toBe(1000)
+  })
+  it('上限4000点・下限を持つ', () => {
+    expect(sampleCountForWidth(100000)).toBe(4000)
+    expect(sampleCountForWidth(10)).toBeGreaterThanOrEqual(100)
+  })
+  it('幅が未確定(0やNaN)のときは従来の600点', () => {
+    expect(sampleCountForWidth(0)).toBe(600)
+    expect(sampleCountForWidth(NaN)).toBe(600)
+  })
+})
+
+describe('高周波関数のサンプリング精度(回帰)', () => {
+  const f = (x: number) => Math.sin(50 * x)
+  it('sin(50x) [-4,4] を幅1000px相当でサンプリングすると乖離0.05以下', () => {
+    expect(maxPolylineDeviation(f, -4, 4, sampleCountForWidth(1000))).toBeLessThan(0.05)
+  })
+  it('sin(50x) [-20,20] (ズームアウト)でも幅1000px相当で乖離0.5以下', () => {
+    expect(maxPolylineDeviation(f, -20, 20, sampleCountForWidth(1000))).toBeLessThan(0.5)
   })
 })

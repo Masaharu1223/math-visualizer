@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   cumulativeIntegralSamples,
   differentiate,
   interpolateSamples,
+  sampleCountForWidth,
   sampleFunction,
 } from '../math/engine'
 import type { ParsedFunction } from '../math/engine'
@@ -36,10 +37,27 @@ function useSafeDerivative(fn: ParsedFunction | null): ParsedFunction | null {
   }, [fn])
 }
 
+/** 要素の幅(CSS px)を追跡する。グラフのサンプル密度を表示幅に合わせるために使う */
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    ro.observe(el)
+    setWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, width] as const
+}
+
 export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
   const [xmin, xmax] = xRange
+  const [rootRef, width] = useElementWidth<HTMLDivElement>()
+  const n = sampleCountForWidth(width)
   const fEval = useCallback((v: number) => fn.eval({ x: v }), [fn])
-  const fSamples = useMemo(() => sampleFunction(fEval, xmin, xmax), [fEval, xmin, xmax])
+  const fSamples = useMemo(() => sampleFunction(fEval, xmin, xmax, n), [fEval, xmin, xmax, n])
   const fx = fn.eval({ x })
 
   const df = useSafeDerivative(mode === 'derivative' ? fn : null)
@@ -48,18 +66,18 @@ export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
   const [integralFrom, setIntegralFrom] = useState(0)
 
   const dfSamples = useMemo(
-    () => (df ? sampleFunction((v) => df.eval({ x: v }), xmin, xmax) : null),
-    [df, xmin, xmax],
+    () => (df ? sampleFunction((v) => df.eval({ x: v }), xmin, xmax, n) : null),
+    [df, xmin, xmax, n],
   )
   const d2fSamples = useMemo(
     () =>
-      d2f && showSecond ? sampleFunction((v) => d2f.eval({ x: v }), xmin, xmax) : null,
-    [d2f, showSecond, xmin, xmax],
+      d2f && showSecond ? sampleFunction((v) => d2f.eval({ x: v }), xmin, xmax, n) : null,
+    [d2f, showSecond, xmin, xmax, n],
   )
   const FSamples = useMemo(
     () =>
-      mode === 'integral' ? cumulativeIntegralSamples(fEval, integralFrom, xmin, xmax) : null,
-    [mode, fEval, integralFrom, xmin, xmax],
+      mode === 'integral' ? cumulativeIntegralSamples(fEval, integralFrom, xmin, xmax, n) : null,
+    [mode, fEval, integralFrom, xmin, xmax, n],
   )
 
   if (mode === 'derivative') {
@@ -75,7 +93,7 @@ export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
       bottomMarkers.push({ x, y: d2f.eval({ x }), color: COLOR_D2F })
     }
     return (
-      <div className="view2d">
+      <div className="view2d" ref={rootRef}>
         <div className="panel">
           <div className="panel-head">
             <Formula tex={`f(x) = ${fn.latex}`} color={COLOR_F} />
@@ -130,7 +148,7 @@ export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
   // 積分モード
   const Fx = FSamples ? interpolateSamples(FSamples, x) : NaN
   return (
-    <div className="view2d">
+    <div className="view2d" ref={rootRef}>
       <div className="panel">
         <div className="panel-head">
           <Formula tex={`f(x) = ${fn.latex}`} color={COLOR_F} />

@@ -84,6 +84,17 @@ export function differentiate(
   return fromNode(node, allowedVars)
 }
 
+const DEFAULT_SAMPLES = 600
+const SAMPLES_PER_PX = 2
+const MIN_SAMPLES = 100
+const MAX_SAMPLES = 4000
+
+/** 描画幅(CSS px)から2Dグラフのサンプル数を決める。幅が未確定なら従来の600点 */
+export function sampleCountForWidth(widthPx: number): number {
+  if (!Number.isFinite(widthPx) || widthPx <= 0) return DEFAULT_SAMPLES
+  return Math.min(MAX_SAMPLES, Math.max(MIN_SAMPLES, Math.ceil(widthPx * SAMPLES_PER_PX)))
+}
+
 export function sampleFunction(
   f: (x: number) => number,
   xmin: number,
