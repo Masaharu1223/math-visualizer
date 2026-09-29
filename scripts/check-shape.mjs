@@ -20,6 +20,10 @@
 //     ばらつき(max-min)を見る。高周波で折れ線が山を取りこぼす(undershoot)と悪化する。
 //     'extent' 写像は最良の山に合わせて較正されるため、削れた山は相対的に低く出てばらつきとして検出される
 //
+// 検証できないこと: 写像 px = a*y + b は描画結果から推定するため、グラフ全体の縦倍率・y オフセットのずれは
+//   形が保たれていれば PASS する。これは「形」の検証であり、縦スケール(軸目盛りとの整合)の検証ではない。
+//   pxPerUnit の出力は目視の手掛かりとして使う
+//
 // 閾値の根拠(px は deviceScaleFactor 1 での値):
 //   - MAX_DIST_PX = 4 : 線幅3px+グロー、真値帯のサンプリング誤差、写像推定誤差で 1〜2px は正常にずれる。
 //                       描画が別の形(数十px)になる不一致は 4px を大きく超えるので、誤検出せず捕まえられる
@@ -43,6 +47,7 @@ const X_MAX = 4
 const MARGIN = 140
 const MAX_DIST_PX = 4
 const MAX_BAD_RATIO = 0.02
+const BAD_DIST_PX = 2 // この px を超えた列を「ずれた列」と数える(MAX_BAD_RATIO の分子)
 const PEAK_SPREAD_PX = 3
 
 const CASES = [
@@ -226,7 +231,7 @@ try {
         maxDist = dist
         worstX = X_MIN + i * dx
       }
-      if (dist > 2) bad++
+      if (dist > BAD_DIST_PX) bad++
     }
     const badRatio = checked ? bad / checked : 1
 
