@@ -34,6 +34,7 @@ npm run dev      # 開発サーバー
 npm test         # 数式エンジンのユニットテスト(Vitest)
 npm run build    # 本番ビルド
 node scripts/verify.mjs  # ブラウザ動作確認(スクリーンショット生成)
+node scripts/check-shape.mjs  # 描画曲線と真値の形の一致をピクセルで検証(要 dev server、冒頭コメント参照)
 ```
 
 ## 技術構成
