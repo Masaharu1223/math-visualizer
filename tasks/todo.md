@@ -57,3 +57,21 @@ x を動かすアニメーション・積分モード・3D 曲面モードを備
 - tan(x) の漸近線は分断描画され縦線が出ないことを確認
 - 既知の制限: 記号積分は非対応(数値積分のみ)。バンドルが大きい(mathjs + three 同梱、
   ローカルツールのため許容)。f' グラフの y 自動フィットは発散関数だと潰れ気味(分位点 98% で抑制済み)
+
+---
+
+# Issue #18: 2Dグラフで関数を最大3つまで同時表示
+
+- [x] `src/functionList.test.ts` を先に書き、失敗を確認(TDD)
+- [x] `src/functionList.ts`(addExpr / removeExpr / updateExpr、上限3・下限1、不変更新)
+- [x] `constants.ts` に MAX_FUNCTIONS / FUNCTION_COLORS(1色目は #ff2e63 のまま)
+- [x] `App.tsx`: exprs2d・関数ごとのパース/フォールバック・入力行UI(追加/削除/色ラベルで選択)
+- [x] `View2D.tsx`: fns + activeIndex、1つの useMemo で全関数のサンプル計算
+- [x] `index.css` / README 追記
+- [x] test / lint / build、Playwright 実機確認、check-shape 6ケース
+
+## レビュー
+- 単体テスト 33 件成功(functionList 8 件を追加)。lint・build 成功。check-shape 6/6 PASS
+- Playwright: 3関数追加で追加ボタン無効 / 3色が別色で重なり f'・F の色が対応 / 1式を `sin(` にしても他は描画継続しその行だけエラー / 1関数時は従来表示(f' の色のみ関数色に変更)
+- 壊した式は直前の有効関数で描画を維持する(関数ごとのフォールバック)
+- 既知: dev サーバーで KaTeX フォントが 403(node_modules を symlink している検証環境起因。コード起因ではない)

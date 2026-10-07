@@ -343,3 +343,35 @@ input[type='range'] {
   text-align: center;
   flex-shrink: 0;
 }
+
+.fn-select {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.fn-select.active {
+  border-color: currentColor;
+}
+
+.fn-remove,
+.fn-add {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.fn-add {
+  margin-bottom: 8px;
+}
+
+.fn-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

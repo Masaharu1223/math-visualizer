@@ -11,6 +11,11 @@ export const DEFAULT_RANGE: [number, number] = [-4, 4]
 export const DEFAULT_T_RANGE: [number, number] = [0, Math.PI * 2]
 export const CYCLOID_T_RANGE: [number, number] = [DEFAULT_T_RANGE[0], DEFAULT_T_RANGE[1] * 2]
 
+export const MAX_FUNCTIONS = 3
+
+// 1つ目は従来の f の色(scripts/check-shape.mjs が依存)。2・3色目は f'(水色)・接線(黄)・f''(紫)と区別できる色
+export const FUNCTION_COLORS = ['#ff2e63', '#5cff8a', '#ff8c42']
+
 export const PRESETS_2D = [
   'x^3/3 - 2x',
   'sin(x)',
