@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   cumulativeIntegralSamples,
   differentiate,
@@ -16,8 +16,15 @@ export const COLOR_DF = '#4dd9ff'
 export const COLOR_TANGENT = '#ffe14d'
 export const COLOR_D2F = '#b07cff'
 
-interface View2DProps {
+export interface FnEntry {
   fn: ParsedFunction
+  color: string
+}
+
+interface View2DProps {
+  fns: FnEntry[]
+  /** 接線・面積塗り・f'' の対象にする fns の添字 */
+  activeIndex: number
   mode: 'derivative' | 'integral'
   x: number
   xRange: [number, number]
@@ -26,15 +33,12 @@ interface View2DProps {
 
 const fmt = (v: number) => (Number.isFinite(v) ? v.toFixed(2) : '—')
 
-function useSafeDerivative(fn: ParsedFunction | null): ParsedFunction | null {
-  return useMemo(() => {
-    if (!fn) return null
-    try {
-      return differentiate(fn)
-    } catch {
-      return null
-    }
-  }, [fn])
+function safeDifferentiate(fn: ParsedFunction): ParsedFunction | null {
+  try {
+    return differentiate(fn)
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -55,86 +59,129 @@ function useElementWidth<T extends HTMLElement>() {
   return [ref, width] as const
 }
 
-export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
+export function View2D({ fns, activeIndex, mode, x, xRange, onXRangeChange }: View2DProps) {
   const [xmin, xmax] = xRange
   const [rootRef, width] = useElementWidth<HTMLDivElement>()
   const n = sampleCountForWidth(width)
-  const fEval = useCallback((v: number) => fn.eval({ x: v }), [fn])
-  const fSamples = useMemo(() => sampleFunction(fEval, xmin, xmax, n), [fEval, xmin, xmax, n])
-  const fx = fn.eval({ x })
-
-  const df = useSafeDerivative(mode === 'derivative' ? fn : null)
-  const d2f = useSafeDerivative(df)
   const [showSecond, setShowSecond] = useState(false)
   const [integralFrom, setIntegralFrom] = useState(0)
+  const multi = fns.length > 1
+  const sub = (name: string, i: number) => (multi ? `${name}_{${i + 1}}` : name)
 
-  const dfSamples = useMemo(
-    () => (df ? sampleFunction((v) => df.eval({ x: v }), xmin, xmax, n) : null),
-    [df, xmin, xmax, n],
-  )
-  const d2fSamples = useMemo(
+  // フックはループ内で呼べないので、全関数のサンプルを1つの useMemo で計算する
+  const data = useMemo(
     () =>
-      d2f && showSecond ? sampleFunction((v) => d2f.eval({ x: v }), xmin, xmax, n) : null,
-    [d2f, showSecond, xmin, xmax, n],
+      fns.map(({ fn }, i) => {
+        const fEval = (v: number) => fn.eval({ x: v })
+        const df = mode === 'derivative' ? safeDifferentiate(fn) : null
+        const d2f = df && i === activeIndex && showSecond ? safeDifferentiate(df) : null
+        return {
+          fSamples: sampleFunction(fEval, xmin, xmax, n),
+          df,
+          dfSamples: df ? sampleFunction((v) => df.eval({ x: v }), xmin, xmax, n) : null,
+          d2f,
+          d2fSamples: d2f ? sampleFunction((v) => d2f.eval({ x: v }), xmin, xmax, n) : null,
+          FSamples:
+            mode === 'integral'
+              ? cumulativeIntegralSamples(fEval, integralFrom, xmin, xmax, n)
+              : null,
+        }
+      }),
+    [fns, activeIndex, showSecond, mode, integralFrom, xmin, xmax, n],
   )
-  const FSamples = useMemo(
-    () =>
-      mode === 'integral' ? cumulativeIntegralSamples(fEval, integralFrom, xmin, xmax, n) : null,
-    [mode, fEval, integralFrom, xmin, xmax, n],
-  )
+  const fxs = fns.map(({ fn }) => fn.eval({ x }))
+  const activeData = data[activeIndex]
 
   if (mode === 'derivative') {
-    const slope = df ? df.eval({ x }) : NaN
+    const slope = activeData.df ? activeData.df.eval({ x }) : NaN
+    const topCurves: Curve[] = fns.map(({ color }, i) => ({
+      samples: data[i].fSamples,
+      color,
+    }))
+    const topMarkers: Marker[] = fns.map(({ color }, i) => ({
+      x,
+      y: fxs[i],
+      color,
+    }))
     const bottomCurves: Curve[] = []
     const bottomMarkers: Marker[] = []
-    if (dfSamples) {
-      bottomCurves.push({ samples: dfSamples, color: COLOR_DF })
-      bottomMarkers.push({ x, y: slope, color: COLOR_DF })
-    }
-    if (d2fSamples && d2f) {
-      bottomCurves.push({ samples: d2fSamples, color: COLOR_D2F, width: 2, dim: true })
-      bottomMarkers.push({ x, y: d2f.eval({ x }), color: COLOR_D2F })
-    }
+    fns.forEach(({ color }, i) => {
+      const { df, dfSamples, d2f, d2fSamples } = data[i]
+      if (df && dfSamples) {
+        bottomCurves.push({ samples: dfSamples, color })
+        bottomMarkers.push({ x, y: df.eval({ x }), color })
+      }
+      if (d2f && d2fSamples) {
+        bottomCurves.push({
+          samples: d2fSamples,
+          color: COLOR_D2F,
+          width: 2,
+          dim: true,
+        })
+        bottomMarkers.push({ x, y: d2f.eval({ x }), color: COLOR_D2F })
+      }
+    })
     return (
       <div className="view2d" ref={rootRef}>
         <div className="panel">
-          <div className="panel-head">
-            <Formula tex={`f(x) = ${fn.latex}`} color={COLOR_F} />
-            <span className="value-badge" style={{ color: COLOR_F }}>
-              f({x.toFixed(2)}) = {fmt(fx)}
-            </span>
-          </div>
+          {fns.map(({ fn, color }, i) => (
+            <div className={i === 0 ? 'panel-head' : 'panel-head sub'} key={i}>
+              <Formula tex={`${sub('f', i)}(x) = ${fn.latex}`} color={color} />
+              <span className="value-badge" style={{ color }}>
+                f{multi ? `${i + 1}` : ''}({x.toFixed(2)}) = {fmt(fxs[i])}
+              </span>
+            </div>
+          ))}
           <Graph2D
-            curves={[{ samples: fSamples, color: COLOR_F }]}
-            markers={[{ x, y: fx, color: COLOR_F }]}
-            tangent={Number.isFinite(slope) ? { x, y: fx, slope, color: COLOR_TANGENT } : null}
+            curves={topCurves}
+            markers={topMarkers}
+            tangent={
+              Number.isFinite(slope)
+                ? { x, y: fxs[activeIndex], slope, color: COLOR_TANGENT }
+                : null
+            }
             connectorX={x}
             xRange={xRange}
             onXRangeChange={onXRangeChange}
           />
         </div>
         <div className="panel">
-          <div className="panel-head">
-            {df ? (
-              <>
-                <Formula tex={`f'(x) = ${df.latex}`} color={COLOR_DF} />
-                <span className="value-badge" style={{ color: COLOR_DF }}>
-                  f'({x.toFixed(2)}) = {fmt(slope)}(接線の傾き)
+          {fns.map(({ color }, i) => {
+            const { df } = data[i]
+            return (
+              <div className={i === 0 ? 'panel-head' : 'panel-head sub'} key={i}>
+                {df ? (
+                  <>
+                    <Formula tex={`${sub("f'", i)}(x) = ${df.latex}`} color={color} />
+                    <span className="value-badge" style={{ color }}>
+                      f{multi ? `${i + 1}` : ''}'({x.toFixed(2)}) = {fmt(df.eval({ x }))}
+                      (接線の傾き)
+                    </span>
+                  </>
+                ) : (
+                  <span className="error-text">
+                    {multi ? `f${i + 1}: ` : ''}
+                    この関数は記号微分できませんでした
+                  </span>
+                )}
+              </div>
+            )
+          })}
+          {activeData.df && (
+            <div className="panel-head sub">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={showSecond}
+                  onChange={(e) => setShowSecond(e.target.checked)}
+                />
+                <span style={{ color: COLOR_D2F }}>
+                  {multi ? `f${activeIndex + 1}''(x)` : "f''(x)"} も表示
                 </span>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={showSecond}
-                    onChange={(e) => setShowSecond(e.target.checked)}
-                  />
-                  <span style={{ color: COLOR_D2F }}>f''(x) も表示</span>
-                </label>
-              </>
-            ) : (
-              <span className="error-text">この関数は記号微分できませんでした</span>
-            )}
-          </div>
-          {dfSamples && (
+              </label>
+            </div>
+          )}
+          {bottomCurves.length > 0 && (
             <Graph2D
               curves={bottomCurves}
               markers={bottomMarkers}
@@ -149,61 +196,85 @@ export function View2D({ fn, mode, x, xRange, onXRangeChange }: View2DProps) {
   }
 
   // 積分モード
-  const Fx = FSamples ? interpolateSamples(FSamples, x) : NaN
+  const Fxs = data.map(({ FSamples }) => (FSamples ? interpolateSamples(FSamples, x) : NaN))
+  const Fx = Fxs[activeIndex]
+  const fx = fxs[activeIndex]
   return (
     <div className="view2d" ref={rootRef}>
       <div className="panel">
-        <div className="panel-head">
-          <Formula tex={`f(x) = ${fn.latex}`} color={COLOR_F} />
-          <span className="value-badge" style={{ color: COLOR_DF }}>
-            塗りつぶし面積(符号付き)= {fmt(Fx)}
-          </span>
-          <label className="toggle">
-            下限 a = {integralFrom.toFixed(1)}
-            <input
-              type="range"
-              min={xmin}
-              max={xmax}
-              step={0.1}
-              value={integralFrom}
-              onChange={(e) => setIntegralFrom(Number(e.target.value))}
-            />
-          </label>
-        </div>
+        {fns.map(({ fn, color }, i) => (
+          <div className={i === 0 ? 'panel-head' : 'panel-head sub'} key={i}>
+            <Formula tex={`${sub('f', i)}(x) = ${fn.latex}`} color={color} />
+            {i === activeIndex && (
+              <span className="value-badge" style={{ color: COLOR_DF }}>
+                塗りつぶし面積(符号付き)= {fmt(Fx)}
+              </span>
+            )}
+            {i === 0 && (
+              <label className="toggle">
+                下限 a = {integralFrom.toFixed(1)}
+                <input
+                  type="range"
+                  min={xmin}
+                  max={xmax}
+                  step={0.1}
+                  value={integralFrom}
+                  onChange={(e) => setIntegralFrom(Number(e.target.value))}
+                />
+              </label>
+            )}
+          </div>
+        ))}
         <Graph2D
-          curves={[{ samples: fSamples, color: COLOR_F }]}
-          markers={[{ x, y: fx, color: COLOR_F }]}
-          area={{ samples: fSamples, from: integralFrom, to: x, color: 'rgba(77, 217, 255, 0.22)' }}
+          curves={fns.map(({ color }, i) => ({
+            samples: data[i].fSamples,
+            color,
+          }))}
+          markers={fns.map(({ color }, i) => ({ x, y: fxs[i], color }))}
+          area={{
+            samples: activeData.fSamples,
+            from: integralFrom,
+            to: x,
+            color: 'rgba(77, 217, 255, 0.22)',
+          }}
           connectorX={x}
           xRange={xRange}
           onXRangeChange={onXRangeChange}
         />
       </div>
       <div className="panel">
-        <div className="panel-head">
-          <Formula
-            tex={`F(x) = \\int_{${integralFrom.toFixed(1)}}^{x} f(t)\\, dt`}
-            color={COLOR_DF}
-          />
-          <span className="value-badge" style={{ color: COLOR_DF }}>
-            F({x.toFixed(2)}) = {fmt(Fx)}
-          </span>
-          <span className="hint-text">黄色の接線の傾き = f(x)(微積分学の基本定理)</span>
-        </div>
-        {FSamples && (
-          <Graph2D
-            curves={[{ samples: FSamples, color: COLOR_DF, upToX: x }]}
-            markers={[{ x, y: Fx, color: COLOR_DF }]}
-            tangent={
-              Number.isFinite(Fx) && Number.isFinite(fx)
-                ? { x, y: Fx, slope: fx, color: COLOR_TANGENT }
-                : null
-            }
-            connectorX={x}
-            xRange={xRange}
-            onXRangeChange={onXRangeChange}
-          />
-        )}
+        {fns.map(({ color }, i) => (
+          <div className={i === 0 ? 'panel-head' : 'panel-head sub'} key={i}>
+            <Formula
+              tex={`${sub('F', i)}(x) = \\int_{${integralFrom.toFixed(1)}}^{x} ${sub('f', i)}(t)\\, dt`}
+              color={color}
+            />
+            <span className="value-badge" style={{ color }}>
+              F{multi ? `${i + 1}` : ''}({x.toFixed(2)}) = {fmt(Fxs[i])}
+            </span>
+            {i === 0 && (
+              <span className="hint-text">
+                黄色の接線の傾き = {multi ? `f${activeIndex + 1}` : 'f'}
+                (x)(微積分学の基本定理)
+              </span>
+            )}
+          </div>
+        ))}
+        <Graph2D
+          curves={fns.flatMap(({ color }, i) => {
+            const { FSamples } = data[i]
+            return FSamples ? [{ samples: FSamples, color, upToX: x }] : []
+          })}
+          markers={fns.map(({ color }, i) => ({ x, y: Fxs[i], color }))}
+          tangent={
+            Number.isFinite(Fx) && Number.isFinite(fx)
+              ? { x, y: Fx, slope: fx, color: COLOR_TANGENT }
+              : null
+          }
+          connectorX={x}
+          xRange={xRange}
+          onXRangeChange={onXRangeChange}
+        />
       </div>
     </div>
   )

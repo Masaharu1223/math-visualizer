@@ -5,14 +5,27 @@ import { Controls } from './components/Controls'
 import { View2D } from './components/View2D'
 import { View3D, DOMAIN_3D } from './components/View3D'
 import { ViewParametric } from './components/ViewParametric'
+import { addExpr, removeExpr, updateExpr } from './functionList'
 import {
   DEFAULT_RANGE,
+  FUNCTION_COLORS,
+  MAX_FUNCTIONS,
   MODE_LABELS,
   PRESETS_2D,
   PRESETS_3D,
   PRESETS_PARAMETRIC,
 } from './constants'
 import type { Mode } from './constants'
+
+type ParseResult = { fn: ParsedFunction | null; error: string | null }
+
+function tryParse(expr: string, vars: string[]): ParseResult {
+  try {
+    return { fn: parseFunction(expr, vars), error: null }
+  } catch (e) {
+    return { fn: null, error: e instanceof Error ? e.message : String(e) }
+  }
+}
 
 const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
 
@@ -60,7 +73,8 @@ function useAnimatedX(
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('derivative')
-  const [expr2d, setExpr2d] = useState(PRESETS_2D[0])
+  const [exprs2d, setExprs2d] = useState([PRESETS_2D[0]])
+  const [activeIndex, setActiveIndex] = useState(0)
   const [expr3d, setExpr3d] = useState(PRESETS_3D[0])
   const [xtExpr, setXtExpr] = useState(PRESETS_PARAMETRIC[0].xt)
   const [ytExpr, setYtExpr] = useState(PRESETS_PARAMETRIC[0].yt)
@@ -71,36 +85,54 @@ export default function App() {
 
   const isParametric = mode === 'parametric'
   const is3D = mode === 'surface'
-  const expr = is3D ? expr3d : expr2d
-  const setExpr = is3D ? setExpr3d : setExpr2d
-  const presets = is3D ? PRESETS_3D : PRESETS_2D
   const effRange = is3D ? SURFACE_RANGE : xRange
 
-  const parsed = useMemo(() => {
-    if (isParametric) return { fn: null, error: null as string | null }
-    try {
-      return { fn: parseFunction(expr, is3D ? ['x', 'y'] : ['x']), error: null as string | null }
-    } catch (e) {
-      return { fn: null, error: e instanceof Error ? e.message : String(e) }
-    }
-  }, [expr, is3D, isParametric])
+  const parsed2d = useMemo(() => exprs2d.map((e) => tryParse(e, ['x'])), [exprs2d])
+  const parsed3d = useMemo(() => tryParse(expr3d, ['x', 'y']), [expr3d])
 
-  const [lastValid, setLastValid] = useState<Record<'2d' | '3d', ParsedFunction | null>>({
-    '2d': null,
-    '3d': null,
-  })
-  const key = is3D ? '3d' : '2d'
+  // 無効な入力のあいだは、関数ごとに直前の有効な関数を描画し続ける
+  const [lastValid2d, setLastValid2d] = useState<(ParsedFunction | null)[]>([])
+  const [lastValid3d, setLastValid3d] = useState<ParsedFunction | null>(null)
   useEffect(() => {
-    if (!parsed.fn) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cache the latest valid parser results for invalid input fallback
+    setLastValid2d((prev) => {
+      const next = parsed2d.map((p, i) => p.fn ?? prev[i] ?? null)
+      return next.length === prev.length && next.every((f, i) => f === prev[i]) ? prev : next
+    })
+  }, [parsed2d])
+  useEffect(() => {
+    if (!parsed3d.fn) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- cache the latest valid parser result for invalid input fallback
-    setLastValid((prev) => (prev[key] === parsed.fn ? prev : { ...prev, [key]: parsed.fn }))
-  }, [key, parsed.fn])
-  const fn = parsed.fn ?? lastValid[key]
+    setLastValid3d(parsed3d.fn)
+  }, [parsed3d.fn])
+  const fn3d = parsed3d.fn ?? lastValid3d
+
+  const fns2d = useMemo(
+    () =>
+      parsed2d.flatMap((p, i) => {
+        const fn = p.fn ?? lastValid2d[i]
+        return fn ? [{ index: i, fn, color: FUNCTION_COLORS[i] }] : []
+      }),
+    [parsed2d, lastValid2d],
+  )
+  const activeFnIndex = Math.max(
+    0,
+    fns2d.findIndex((f) => f.index === activeIndex),
+  )
+
+  const addFunction = () =>
+    setExprs2d((list) => addExpr(list, PRESETS_2D[list.length % PRESETS_2D.length]))
+  const removeFunction = (i: number) => {
+    setExprs2d((list) => removeExpr(list, i))
+    setLastValid2d((list) => list.filter((_, j) => j !== i))
+    setActiveIndex((a) => (i < a ? a - 1 : i === a ? 0 : a))
+  }
 
   const [x, setX] = useAnimatedX(effRange, !isParametric && playing, speed)
   const [t, setT] = useAnimatedX(tRange, isParametric && playing, speed)
   const currentParametricPresetIndex = PRESETS_PARAMETRIC.findIndex(
-    (p) => p.xt === xtExpr && p.yt === ytExpr && p.tRange[0] === tRange[0] && p.tRange[1] === tRange[1],
+    (p) =>
+      p.xt === xtExpr && p.yt === ytExpr && p.tRange[0] === tRange[0] && p.tRange[1] === tRange[1],
   )
 
   return (
@@ -163,33 +195,95 @@ export default function App() {
             </select>
           </div>
         </div>
-      ) : (
+      ) : is3D ? (
         <>
           <div className="input-row">
-            <span className="fn-label">{is3D ? 'f(x, y) =' : 'f(x) ='}</span>
+            <span className="fn-label">f(x, y) =</span>
             <input
-              className={parsed.error ? 'fn-input invalid' : 'fn-input'}
-              value={expr}
-              onChange={(e) => setExpr(e.target.value)}
+              className={parsed3d.error ? 'fn-input invalid' : 'fn-input'}
+              value={expr3d}
+              onChange={(e) => setExpr3d(e.target.value)}
               spellCheck={false}
-              placeholder={is3D ? '例: sin(x) * cos(y)' : '例: x^3/3 - 2x'}
+              placeholder="例: sin(x) * cos(y)"
             />
             <select
               className="preset-select"
-              value={presets.includes(expr) ? expr : ''}
-              onChange={(e) => e.target.value && setExpr(e.target.value)}
+              value={PRESETS_3D.includes(expr3d) ? expr3d : ''}
+              onChange={(e) => e.target.value && setExpr3d(e.target.value)}
             >
               <option value="" disabled>
                 プリセット
               </option>
-              {presets.map((p) => (
+              {PRESETS_3D.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
               ))}
             </select>
           </div>
-          {parsed.error && <p className="error-text">数式エラー: {parsed.error}</p>}
+          {parsed3d.error && <p className="error-text">数式エラー: {parsed3d.error}</p>}
+        </>
+      ) : (
+        <>
+          {exprs2d.map((expr, i) => {
+            const error = parsed2d[i].error
+            return (
+              <div key={i}>
+                <div className="input-row">
+                  <button
+                    className={
+                      i === activeIndex ? 'fn-label fn-select active' : 'fn-label fn-select'
+                    }
+                    style={{ color: FUNCTION_COLORS[i] }}
+                    title="接線・面積の対象にする"
+                    onClick={() => setActiveIndex(i)}
+                  >
+                    {exprs2d.length > 1 ? `f${i + 1}(x) =` : 'f(x) ='}
+                  </button>
+                  <input
+                    className={error ? 'fn-input invalid' : 'fn-input'}
+                    value={expr}
+                    onChange={(e) => setExprs2d((list) => updateExpr(list, i, e.target.value))}
+                    spellCheck={false}
+                    placeholder="例: x^3/3 - 2x"
+                  />
+                  <select
+                    className="preset-select"
+                    value={PRESETS_2D.includes(expr) ? expr : ''}
+                    onChange={(e) =>
+                      e.target.value && setExprs2d((list) => updateExpr(list, i, e.target.value))
+                    }
+                  >
+                    <option value="" disabled>
+                      プリセット
+                    </option>
+                    {PRESETS_2D.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                  {exprs2d.length > 1 && (
+                    <button
+                      className="fn-remove"
+                      aria-label={`f${i + 1} を削除`}
+                      onClick={() => removeFunction(i)}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                {error && <p className="error-text">数式エラー: {error}</p>}
+              </div>
+            )
+          })}
+          <button
+            className="fn-add"
+            disabled={exprs2d.length >= MAX_FUNCTIONS}
+            onClick={addFunction}
+          >
+            + 関数を追加
+          </button>
         </>
       )}
 
@@ -210,19 +304,19 @@ export default function App() {
 
       {isParametric ? (
         <ViewParametric xtExpr={xtExpr} ytExpr={ytExpr} tRange={tRange} />
+      ) : is3D ? (
+        fn3d && <View3D fn={fn3d} x={x} />
       ) : (
-        fn &&
-        (is3D ? (
-          <View3D fn={fn} x={x} />
-        ) : (
+        fns2d.length > 0 && (
           <View2D
-            fn={fn}
+            fns={fns2d}
+            activeIndex={activeFnIndex}
             mode={mode as 'derivative' | 'integral'}
             x={x}
             xRange={xRange}
             onXRangeChange={setXRange}
           />
-        ))
+        )
       )}
 
       <footer className="app-footer">
