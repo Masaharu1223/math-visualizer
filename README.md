@@ -1,3 +1,4 @@
+
 # 関数ビジュアライザー
 先日リリースされたFable 5の検証(effortはxhigh)として、
 要件定義から実装、ビルド、テスト、デプロイまで一気通貫で本アプリを作成いたしました。
@@ -10,7 +11,7 @@
 
 
 
-![微分モード](screenshots/1-derivative.png)
+<img width="1500" height="843" alt="スクリーンショット 2026-10-07 18 37 44" src="https://github.com/user-attachments/assets/9b72300b-8d1d-4caf-a7b6-5e04dffd0257" />
 
 ## モード
 
