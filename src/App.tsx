@@ -236,6 +236,7 @@ export default function App() {
                     }
                     style={{ color: FUNCTION_COLORS[i] }}
                     title="接線・面積の対象にする"
+                    aria-pressed={i === activeIndex}
                     onClick={() => setActiveIndex(i)}
                   >
                     {exprs2d.length > 1 ? `f${i + 1}(x) =` : 'f(x) ='}
