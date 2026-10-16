@@ -174,13 +174,31 @@ export default function App() {
     const { el, set } = padTarget()
     if (!el) return
     const { value, caret } = edit(el)
+    if (value === el.value) {
+      // 値が変わらないと再描画が起きず pendingCaret が残って、後の打鍵でカーソルが飛ぶので直接設定する
+      el.setSelectionRange(caret, caret)
+      return
+    }
     set(value)
     pendingCaret.current = { el, caret }
   }
   const padInsert = (text: string) =>
-    editPad((el) => insertAtCaret(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, text))
+    editPad((el) =>
+      insertAtCaret(
+        el.value,
+        el.selectionStart ?? el.value.length,
+        el.selectionEnd ?? el.value.length,
+        text,
+      ),
+    )
   const padBackspace = () =>
-    editPad((el) => backspaceAtCaret(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0))
+    editPad((el) =>
+      backspaceAtCaret(
+        el.value,
+        el.selectionStart ?? el.value.length,
+        el.selectionEnd ?? el.value.length,
+      ),
+    )
   const padClear = () => editPad(() => ({ value: '', caret: 0 }))
 
   // 再描画で value が反映されたあとにカーソルを復元する。
