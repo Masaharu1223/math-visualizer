@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { parseFunction } from './math/engine'
 import type { ParsedFunction } from './math/engine'
 import { Controls } from './components/Controls'
+import { Keypad } from './components/Keypad'
 import { View2D } from './components/View2D'
 import { View3D, DOMAIN_3D } from './components/View3D'
 import { ViewParametric } from './components/ViewParametric'
 import { addExpr, removeExpr, updateExpr } from './functionList'
+import { backspaceAtCaret, insertAtCaret, variablesFor } from './keypad'
+import type { EditResult } from './keypad'
 import {
   DEFAULT_RANGE,
   FUNCTION_COLORS,
@@ -28,6 +31,24 @@ function tryParse(expr: string, vars: string[]): ParseResult {
 }
 
 const SURFACE_RANGE: [number, number] = [-DOMAIN_3D, DOMAIN_3D]
+
+const KEYPAD_STORAGE_KEY = 'keypadOpen'
+
+function loadKeypadOpen(): boolean {
+  try {
+    return localStorage.getItem(KEYPAD_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function saveKeypadOpen(open: boolean) {
+  try {
+    localStorage.setItem(KEYPAD_STORAGE_KEY, open ? '1' : '0')
+  } catch {
+    // 保存できなくても動作には影響しない
+  }
+}
 
 const MAX_FRAME_DELTA_SEC = 0.1
 const ANIMATION_SPEED_SCALE = 8
@@ -83,6 +104,14 @@ export default function App() {
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState(1)
 
+  const [keypadOpen, setKeypadOpen] = useState(loadKeypadOpen)
+  const inputRefs2d = useRef<(HTMLInputElement | null)[]>([])
+  const input3dRef = useRef<HTMLInputElement>(null)
+  const xtRef = useRef<HTMLInputElement>(null)
+  const ytRef = useRef<HTMLInputElement>(null)
+  const lastParametricField = useRef<'xt' | 'yt'>('xt')
+  const pendingCaret = useRef<{ el: HTMLInputElement; caret: number } | null>(null)
+
   const isParametric = mode === 'parametric'
   const is3D = mode === 'surface'
   const effRange = is3D ? SURFACE_RANGE : xRange
@@ -128,6 +157,47 @@ export default function App() {
     setActiveIndex((a) => (i < a ? a - 1 : i === a ? 0 : a))
   }
 
+  // 入力パッドの挿入先: 2D は選択中の関数、3D はその欄、媒介変数は最後にフォーカスした欄(未フォーカスなら x(t))
+  const padTarget = () => {
+    if (is3D) return { el: input3dRef.current, set: setExpr3d }
+    if (isParametric) {
+      return lastParametricField.current === 'yt'
+        ? { el: ytRef.current, set: setYtExpr }
+        : { el: xtRef.current, set: setXtExpr }
+    }
+    return {
+      el: inputRefs2d.current[activeIndex],
+      set: (v: string) => setExprs2d((list) => updateExpr(list, activeIndex, v)),
+    }
+  }
+  const editPad = (edit: (el: HTMLInputElement) => EditResult) => {
+    const { el, set } = padTarget()
+    if (!el) return
+    const { value, caret } = edit(el)
+    set(value)
+    pendingCaret.current = { el, caret }
+  }
+  const padInsert = (text: string) =>
+    editPad((el) => insertAtCaret(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, text))
+  const padBackspace = () =>
+    editPad((el) => backspaceAtCaret(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0))
+  const padClear = () => editPad(() => ({ value: '', caret: 0 }))
+
+  // 再描画で value が反映されたあとにカーソルを復元する。
+  // フォーカス済みの欄にだけ focus() するのは、タッチ端末でソフトキーボードが勝手に出ないようにするため
+  useLayoutEffect(() => {
+    const pending = pendingCaret.current
+    if (!pending) return
+    pendingCaret.current = null
+    if (document.activeElement === pending.el) pending.el.focus()
+    pending.el.setSelectionRange(pending.caret, pending.caret)
+  })
+
+  const toggleKeypad = () => {
+    saveKeypadOpen(!keypadOpen)
+    setKeypadOpen(!keypadOpen)
+  }
+
   const [x, setX] = useAnimatedX(effRange, !isParametric && playing, speed)
   const [t, setT] = useAnimatedX(tRange, isParametric && playing, speed)
   const currentParametricPresetIndex = PRESETS_PARAMETRIC.findIndex(
@@ -158,7 +228,9 @@ export default function App() {
             <span className="fn-label">x(t) =</span>
             <input
               className="fn-input"
+              ref={xtRef}
               value={xtExpr}
+              onFocus={() => (lastParametricField.current = 'xt')}
               onChange={(e) => setXtExpr(e.target.value)}
               spellCheck={false}
               placeholder="例: cos(t)"
@@ -168,7 +240,9 @@ export default function App() {
             <span className="fn-label">y(t) =</span>
             <input
               className="fn-input"
+              ref={ytRef}
               value={ytExpr}
+              onFocus={() => (lastParametricField.current = 'yt')}
               onChange={(e) => setYtExpr(e.target.value)}
               spellCheck={false}
               placeholder="例: sin(t)"
@@ -201,6 +275,7 @@ export default function App() {
             <span className="fn-label">f(x, y) =</span>
             <input
               className={parsed3d.error ? 'fn-input invalid' : 'fn-input'}
+              ref={input3dRef}
               value={expr3d}
               onChange={(e) => setExpr3d(e.target.value)}
               spellCheck={false}
@@ -243,6 +318,9 @@ export default function App() {
                   </button>
                   <input
                     className={error ? 'fn-input invalid' : 'fn-input'}
+                    ref={(el) => {
+                      inputRefs2d.current[i] = el
+                    }}
                     value={expr}
                     onChange={(e) => setExprs2d((list) => updateExpr(list, i, e.target.value))}
                     spellCheck={false}
@@ -286,6 +364,27 @@ export default function App() {
             + 関数を追加
           </button>
         </>
+      )}
+
+      <div className="keypad-toggle-row">
+        <button
+          className="keypad-toggle"
+          aria-expanded={keypadOpen}
+          aria-controls="keypad"
+          onClick={toggleKeypad}
+        >
+          電卓
+        </button>
+      </div>
+      {keypadOpen && (
+        <div id="keypad">
+          <Keypad
+            variables={variablesFor(mode)}
+            onInsert={padInsert}
+            onBackspace={padBackspace}
+            onClear={padClear}
+          />
+        </div>
       )}
 
       <Controls

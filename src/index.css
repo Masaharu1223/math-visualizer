@@ -375,3 +375,74 @@ input[type='range'] {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.keypad-toggle-row {
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.keypad-toggle {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.keypad-toggle[aria-expanded='true'] {
+  border-color: var(--cyan);
+}
+
+.keypad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.pad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 52px);
+  gap: 5px;
+}
+
+.pad-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pad-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pad-key {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 15px;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.pad-key:hover {
+  border-color: var(--cyan);
+}
+
+.pad-key:active {
+  background: #232336;
+}
+
+.pad-action {
+  color: var(--pink);
+}

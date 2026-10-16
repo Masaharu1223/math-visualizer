@@ -75,3 +75,20 @@ x を動かすアニメーション・積分モード・3D 曲面モードを備
 - Playwright: 3関数追加で追加ボタン無効 / 3色が別色で重なり f'・F の色が対応 / 1式を `sin(` にしても他は描画継続しその行だけエラー / 1関数時は従来表示(f' の色のみ関数色に変更)
 - 壊した式は直前の有効関数で描画を維持する(関数ごとのフォールバック)
 - 既知: dev サーバーで KaTeX フォントが 403(node_modules を symlink している検証環境起因。コード起因ではない)
+
+---
+
+# Issue #20: 電卓風の数式入力パッド
+
+- [x] `src/keypad.test.ts` を先に書き、失敗を確認(TDD)
+- [x] `src/keypad.ts`(insertAtCaret / backspaceAtCaret / キー定義 / モード別変数)
+- [x] `src/components/Keypad.tsx`(表示とクリック通知のみ)
+- [x] `App.tsx`: 入力欄の ref・挿入先の決定・カーソル復元・開閉トグル(localStorage 保存)
+- [x] `index.css` / README 追記
+- [x] test / lint / build、Playwright 実機確認、check-shape 6ケース
+
+## レビュー
+- 単体テスト 48 件成功(keypad 15 件を追加)。lint・build 成功。check-shape 6/6 PASS
+- Playwright: 開閉と再読み込み後の保持 / カーソル位置への挿入・関数ボタンが `sin(` で入る・⌫・C / 3関数で色ラベルの選択先にだけ挿入(別欄にフォーカスがあっても) / 3D は x y、媒介変数は t のボタン・最後にフォーカスした欄に挿入(未フォーカスは x(t)) / パッド入力が式のパースとグラフ更新に反映 / キーボード入力と併用可 / 狭い画面(390px)で折り返し
+- コンソールエラーはコード由来なし(KaTeX フォントの 403 は node_modules を symlink している検証環境起因)
+- 媒介変数の挿入先(最後にフォーカスした欄、未フォーカスは x(t))は未合意の判断
